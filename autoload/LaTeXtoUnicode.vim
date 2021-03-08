@@ -38,10 +38,6 @@ function! s:L2U_Setup()
   let b:l2u_found_completion = 0
   " Is the cursor just after a single backslash
   let b:l2u_singlebslash = 0
-  " Backup value of the completeopt settings
-  " (since we temporarily add the 'longest' setting while
-  "  attempting LaTeX-to-Unicode)
-  let b:l2u_backup_commpleteopt = &completeopt
   " Are we in the middle of a L2U tab completion?
   let b:l2u_tab_completing = 0
   " Are we calling the tab fallback?
@@ -258,7 +254,8 @@ function! LaTeXtoUnicode#completefunc(findstart, base)
       let b:l2u_in_fallback = 0
       return -3
     endif
-    let b:l2u_in_fallback = 0
+    call s:L2U_SetCompleteopt()
+    call s:L2U_InsertCompleteDoneAutocommand()
     " set info for the callback
     let b:l2u_found_completion = 1
     " analyse current line
@@ -389,12 +386,6 @@ function! LaTeXtoUnicode#Tab()
   " reset the in_fallback info
   let b:l2u_in_fallback = 0
   let b:l2u_tab_completing = 1
-  " temporary change to completeopt to use the `longest` setting, which is
-  " probably the only one which makes sense given that the goal of the
-  " completion is to substitute the final string
-  let b:l2u_backup_commpleteopt = &completeopt
-  set completeopt+=longest
-  set completeopt-=noinsert
   " invoke completion; failure to perform LaTeX-to-Unicode completion is
   " handled by the CompleteDone autocommand.
   call feedkeys("\<C-X>\<C-U>", 'n')
@@ -404,12 +395,11 @@ endfunction
 " This function is called at every CompleteDone event, and is meant to handle
 " the failures of LaTeX-to-Unicode completion by calling a fallback
 function! LaTeXtoUnicode#FallbackCallback()
+  call s:L2U_RemoveCompleteDoneAutocommand()
+  call s:L2U_RestoreCompleteopt()
   if !b:l2u_tab_completing
     " completion was not initiated by L2U, nothing to do
     return
-  else
-    " completion was initiated by L2U, restore completeopt
-    let &completeopt = b:l2u_backup_commpleteopt
   endif
   " at this point L2U tab completion is over
   let b:l2u_tab_completing = 0
@@ -471,6 +461,51 @@ function! LaTeXtoUnicode#CmdTab(trigger)
   return ''
 endfunction
 
+function! s:L2U_SetCompleteopt()
+  " temporary change completeopt to use settings which make sense
+  " for L2U
+  let backup_new = 0
+  if !exists('b:l2u_backup_completeopt')
+    let b:l2u_backup_completeopt = &completeopt
+    let backup_new = 1
+  endif
+  noautocmd set completeopt+=longest
+  noautocmd set completeopt-=noinsert
+  noautocmd set completeopt-=noselect
+  noautocmd set completeopt-=menuone
+  if backup_new
+    let b:l2u_modified_completeopt = &completeopt
+  endif
+endfunction
+
+function! s:L2U_RestoreCompleteopt()
+  " restore completeopt, but only if nothing else has
+  " messed with it in the meanwhile
+  if exists('b:l2u_backup_completeopt')
+    if exists('b:l2u_modified_completeopt')
+      if &completeopt ==# b:l2u_modified_completeopt
+        noautocmd let &completeopt = b:l2u_backup_completeopt
+      endif
+      unlet b:l2u_modified_completeopt
+    endif
+    unlet b:l2u_backup_completeopt
+  endif
+endfunction
+
+function! s:L2U_InsertCompleteDoneAutocommand()
+  augroup L2UTab
+    autocmd! * <buffer>
+    " Every time a L2U completion finishes, the fallback may be invoked
+    autocmd CompleteDone <buffer> call LaTeXtoUnicode#FallbackCallback()
+  augroup END
+endfunction
+
+function! s:L2U_RemoveCompleteDoneAutocommand()
+  augroup L2UTab
+    autocmd! * <buffer>
+  augroup END
+endfunction
+
 " Setup the L2U tab mapping
 function! s:L2U_SetTab(wait_insert_enter)
   let opt_do_cmdtab = index(["on", "command", "cmd"], get(g:, "latex_to_unicode_tab", "on")) != -1
@@ -507,12 +542,6 @@ function! s:L2U_SetTab(wait_insert_enter)
   imap <buffer> <Tab> <Plug>L2UTab
   inoremap <buffer><expr> <Plug>L2UTab LaTeXtoUnicode#Tab()
 
-  augroup L2UTab
-    autocmd! * <buffer>
-    " Every time a completion finishes, the fallback may be invoked
-    autocmd CompleteDone <buffer> call LaTeXtoUnicode#FallbackCallback()
-  augroup END
-
   let b:l2u_tab_set = 1
 endfunction
 
@@ -534,9 +563,6 @@ function! s:L2U_UnsetTab()
   endif
   iunmap <buffer> <Plug>L2UTab
   exe 'iunmap <buffer> ' . s:l2u_fallback_trigger
-  augroup L2UTab
-    autocmd! * <buffer>
-  augroup END
   let b:l2u_tab_set = 0
 endfunction
 
