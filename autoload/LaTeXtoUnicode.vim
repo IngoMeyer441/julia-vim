@@ -8,28 +8,14 @@ function! s:L2U_Setup()
 
   " Keep track of whether LaTeX-to-Unicode is activated
   " (used when filetype changes)
-  if !has_key(b:, "l2u_enabled")
-    let b:l2u_enabled = 0
-  endif
-  if !has_key(b:, "l2u_autodetect_enable")
-    let b:l2u_autodetect_enable = 1
-  endif
+  let b:l2u_enabled = get(b:, "l2u_enabled", 0)
+  let b:l2u_autodetect_enable = get(b:, "l2u_autodetect_enable", 1)
 
-  " Did we install the L2U tab mappings?
-  if !has_key(b:, "l2u_tab_set")
-    let b:l2u_tab_set = 0
-  endif
-  if !has_key(b:, "l2u_cmdtab_set")
-    let b:l2u_cmdtab_set = 0
-  endif
-  if !has_key(b:, "l2u_keymap_set")
-    let b:l2u_keymap_set = 0
-  endif
-
-  " Did we activate the L2U as-you-type substitutions?
-  if !has_key(b:, "l2u_autosub_set")
-    let b:l2u_autosub_set = 0
-  endif
+  " Did we install the L2U tab/as-you-type/keymap... mappings?
+  let b:l2u_tab_set = get(b:, "l2u_tab_set", 0)
+  let b:l2u_cmdtab_set = get(b:, "l2u_cmdtab_set", 0)
+  let b:l2u_autosub_set = get(b:, "l2u_autosub_set", 0)
+  let b:l2u_keymap_set = get(b:, "l2u_keymap_set", 0)
 
   " Following are some flags used to pass information between the function which
   " attempts the LaTeX-to-Unicode completion and the fallback function
@@ -73,13 +59,9 @@ function! s:L2U_SetupGlobal()
     let g:latex_to_unicode_suggestions = 0
   endif
 
-  " A hack to forcibly get out of completion mode: feed
-  " this string with feedkeys()
-  if has("win32") || has("win64")
-    let s:l2u_esc_sequence = "\u0006"
-  else
-    let s:l2u_esc_sequence = "\u0091\b"
-  end
+  " Forcibly get out of completion mode: feed
+  " this string with feedkeys(s:l2u_esc_sequence, 'n')
+  let s:l2u_esc_sequence = " \b"
 
   " Trigger for the previous mapping of <Tab>
   let s:l2u_fallback_trigger = "\u0091L2UFallbackTab"
@@ -353,37 +335,70 @@ function! LaTeXtoUnicode#PutLiteral(k)
   return ''
 endfunction
 
+function! LaTeXtoUnicode#PutLiteralCR()
+  call feedkeys('', 'ni')
+  return ''
+endfunction
+
 " Function which saves the current insert-mode mapping of a key sequence `s`
 " and associates it with another key sequence `k` (e.g. stores the current
-" <Tab> mapping into the Fallback trigger)
+" <Tab> mapping into the Fallback trigger).
+" It returns the previous maparg dictionary, so that the previous mapping can
+" be reinstated if needed.
 function! s:L2U_SetFallbackMapping(s, k)
   let mmdict = maparg(a:s, 'i', 0, 1)
   if empty(mmdict)
     exe 'inoremap <buffer> ' . a:k . ' ' . a:s
-    return
+    return mmdict
   endif
   let rhs = mmdict["rhs"]
   if rhs =~# '^<Plug>L2U'
-    return
+    return mmdict
   endif
   let pre = '<buffer>'
-  if mmdict["silent"]
-    let pre = pre . '<silent>'
-  endif
-  if mmdict["expr"]
-    let pre = pre . '<expr>'
-  endif
+  let pre = pre . (mmdict["silent"] ? '<silent>' : '')
+  let pre = pre . (mmdict["expr"] ? '<expr>' : '')
   if mmdict["noremap"]
     let cmd = 'inoremap '
   else
     let cmd = 'imap '
     " This is a nasty hack used to prevent infinite recursion. It's not a
-    " general solution.
+    " general solution. Also, it doesn't work with <CR> since that stops
+    " parsing of the <C-R>=... expression, so we need to special-case it.
+    " Also, if the original mapping was intended to be recursive, this
+    " will break it.
     if mmdict["expr"]
-      let rhs = substitute(rhs, '\c' . a:s, "\<C-R>=LaTeXtoUnicode#PutLiteral('" . a:s . "')\<CR>", 'g')
+      if a:s != "<CR>"
+        let rhs = substitute(rhs, '\c' . a:s, "\<C-R>=LaTeXtoUnicode#PutLiteral('" . a:s . "')\<CR>", 'g')
+      else
+        let rhs = substitute(rhs, '\c' . a:s, "\<C-R>=LaTeXtoUnicode#PutLiteralCR()\<CR>", 'g')
+      endif
+      " Make the mapping silent even if it wasn't originally
+      if !mmdict["silent"]
+        let pre = pre . '<silent>'
+      endif
     endif
   endif
   exe cmd . pre . ' ' . a:k . ' ' . rhs
+  return mmdict
+endfunction
+
+" Reinstate a mapping from the maparg dict returned by SetFallbackMapping
+" (only if buffer-local, since otherwise it should still be available)
+function! s:L2U_ReinstateMapping(mmdict)
+  if empty(a:mmdict) || !a:mmdict["buffer"]
+    return ''
+  endif
+  let lhs = a:mmdict["lhs"]
+  let rhs = a:mmdict["rhs"]
+  if rhs =~# '^<Plug>L2U'
+    return ''
+  endif
+  let pre = '<buffer>'
+  let pre = pre . (a:mmdict["silent"] ? '<silent>' : '')
+  let pre = pre . (a:mmdict["expr"] ? '<expr>' : '')
+  let cmd = a:mmdict["noremap"] ? 'inoremap ' : 'imap '
+  exe cmd . pre . ' ' . lhs . ' ' . rhs
 endfunction
 
 " This is the function which is mapped to <Tab>
@@ -561,12 +576,12 @@ function! s:L2U_SetTab(wait_insert_enter)
   endif
 
   " Backup the previous completefunc (the check is probably not really needed)
-  if get(b:, "prev_completefunc", "") != "LaTeXtoUnicode#completefunc"
-    let b:prev_completefunc = &completefunc
+  if get(b:, "l2u_prev_completefunc", "") != "LaTeXtoUnicode#completefunc"
+    let b:l2u_prev_completefunc = &completefunc
   endif
   setlocal completefunc=LaTeXtoUnicode#completefunc
 
-  call s:L2U_SetFallbackMapping('<Tab>', s:l2u_fallback_trigger)
+  let b:l2u_prev_map_tab = s:L2U_SetFallbackMapping('<Tab>', s:l2u_fallback_trigger)
   imap <buffer> <Tab> <Plug>L2UTab
   inoremap <buffer><expr> <Plug>L2UTab LaTeXtoUnicode#Tab()
 
@@ -584,10 +599,10 @@ function! s:L2U_UnsetTab()
   if !b:l2u_tab_set
     return
   endif
-  exec "setlocal completefunc=" . get(b:, "prev_completefunc", "")
+  exec "setlocal completefunc=" . get(b:, "l2u_prev_completefunc", "")
   iunmap <buffer> <Tab>
   if empty(maparg("<Tab>", "i"))
-    call s:L2U_SetFallbackMapping(s:l2u_fallback_trigger, '<Tab>')
+    call s:L2U_ReinstateMapping(b:l2u_prev_map_tab)
   endif
   iunmap <buffer> <Plug>L2UTab
   exe 'iunmap <buffer> ' . s:l2u_fallback_trigger
@@ -677,7 +692,7 @@ function! s:L2U_SetAutoSub(wait_insert_enter)
   " autocmd InsertCharPre. The <Enter> key does not seem to be catched in
   " this way though, so we use a mapping for that case.
 
-  call s:L2U_SetFallbackMapping('<CR>', s:l2u_fallback_trigger_cr)
+  let b:l2u_prev_map_cr = s:L2U_SetFallbackMapping('<CR>', s:l2u_fallback_trigger_cr)
   imap <buffer> <CR> <Plug>L2UAutoSub
   exec 'inoremap <buffer><expr> <Plug>L2UAutoSub LaTeXtoUnicode#AutoSub("\n", "' . s:l2u_fallback_trigger_cr . '")'
 
@@ -697,7 +712,7 @@ function! s:L2U_UnsetAutoSub()
 
   iunmap <buffer> <CR>
   if empty(maparg("<CR>", "i"))
-    exec 'call s:L2U_SetFallbackMapping("' . s:l2u_fallback_trigger_cr . '", "\<CR>")'
+    call s:L2U_ReinstateMapping(b:l2u_prev_map_cr)
   endif
   iunmap <buffer> <Plug>L2UAutoSub
   exe 'iunmap <buffer> ' . s:l2u_fallback_trigger_cr
