@@ -69,9 +69,6 @@ function! s:L2U_SetupGlobal()
   " Trigger for the previous mapping of <CR>
   let s:l2u_fallback_trigger_cr = "\u0091L2UFallbackCR"
 
-  " Trigger for autosub completion cleanup autocommand
-  let s:l2u_autosub_cleanup_trigger = "\u0091L2UAutosubCleanup"
-
 endfunction
 
 " Each time the filetype changes, we may need to enable or
@@ -367,16 +364,14 @@ function! s:L2U_SetFallbackMapping(s, k)
     " parsing of the <C-R>=... expression, so we need to special-case it.
     " Also, if the original mapping was intended to be recursive, this
     " will break it.
-    if mmdict["expr"]
-      if a:s != "<CR>"
-        let rhs = substitute(rhs, '\c' . a:s, "\<C-R>=LaTeXtoUnicode#PutLiteral('" . a:s . "')\<CR>", 'g')
-      else
-        let rhs = substitute(rhs, '\c' . a:s, "\<C-R>=LaTeXtoUnicode#PutLiteralCR()\<CR>", 'g')
-      endif
-      " Make the mapping silent even if it wasn't originally
-      if !mmdict["silent"]
-        let pre = pre . '<silent>'
-      endif
+    if a:s != "<CR>"
+      let rhs = substitute(rhs, '\c' . a:s, "\<C-R>=LaTeXtoUnicode#PutLiteral('" . a:s . "')\<CR>", 'g')
+    else
+      let rhs = substitute(rhs, '\c' . a:s, "\<C-R>=LaTeXtoUnicode#PutLiteralCR()\<CR>", 'g')
+    endif
+    " Make the mapping silent even if it wasn't originally
+    if !mmdict["silent"]
+      let pre = pre . '<silent>'
     endif
   endif
   exe cmd . pre . ' ' . a:k . ' ' . rhs
@@ -652,27 +647,16 @@ function! LaTeXtoUnicode#AutoSub(...)
     return ''
   endif
 
-  " create a temporary mapping to reset b:l2u_in_autosub when done
-  " (when invoked, it removes itself)
-  exec 'imap <buffer> ' . s:l2u_autosub_cleanup_trigger . ' <Plug>L2UAutosubReset'
-  inoremap <buffer><expr> <Plug>L2UAutosubReset <SID>L2U_AutosubReset()
-
   " perform the substitution, wrapping it in undo breakpoints so that
   " we can revert it as a whole
-  call feedkeys("\<C-G>u", 'n')
-  call feedkeys(repeat("\b", len(base) + bs) . unicode . vc . s:l2u_esc_sequence, 'nt')
-  call feedkeys("\<C-G>u", 'n')
-  " enqueue the reset mechanism
-  call feedkeys(s:l2u_autosub_cleanup_trigger)
-  return ''
-endfunction
-
-function! s:L2U_AutosubReset()
-  " no longer doing substitution
-  let b:l2u_in_autosub = 0
-  " remove the mapping that triggered this function
-  exec 'iunmap <buffer> ' . s:l2u_autosub_cleanup_trigger
-  iunmap <buffer> <Plug>L2UAutosubReset
+  " at the end, reset the l2u_in_autosub variable without leaving insert mode
+  " the 'i' mode is the only one that works correctly when executing macros
+  " the 'n' mode is to avoid user-defined mappings of \b, <C-G> and <C-\><C-O>
+  call feedkeys("\<C-G>u" .
+             \  repeat("\b", len(base) + bs) . unicode . vc . s:l2u_esc_sequence .
+             \  "\<C-G>u" .
+             \  "\<C-\>\<C-O>:let b:l2u_in_autosub = 0\<CR>",
+             \  'ni')
   return ''
 endfunction
 
