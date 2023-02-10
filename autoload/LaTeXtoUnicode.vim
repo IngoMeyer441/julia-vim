@@ -576,9 +576,9 @@ function! s:L2U_SetTab(wait_insert_enter)
   endif
   setlocal completefunc=LaTeXtoUnicode#completefunc
 
-  let b:l2u_prev_map_tab = s:L2U_SetFallbackMapping('<Tab>', s:l2u_fallback_trigger)
-  imap <buffer> <Tab> <Plug>L2UTab
-  inoremap <buffer><expr> <Plug>L2UTab LaTeXtoUnicode#Tab()
+  " let b:l2u_prev_map_tab = s:L2U_SetFallbackMapping('<Tab>', s:l2u_fallback_trigger)
+  " imap <buffer> <Tab> <Plug>L2UTab
+  " inoremap <buffer><expr> <Plug>L2UTab LaTeXtoUnicode#Tab()
 
   let b:l2u_tab_set = 1
 endfunction
@@ -595,12 +595,12 @@ function! s:L2U_UnsetTab()
     return
   endif
   exec "setlocal completefunc=" . get(b:, "l2u_prev_completefunc", "")
-  iunmap <buffer> <Tab>
-  if empty(maparg("<Tab>", "i"))
-    call s:L2U_ReinstateMapping(b:l2u_prev_map_tab)
-  endif
-  iunmap <buffer> <Plug>L2UTab
-  exe 'iunmap <buffer> ' . s:l2u_fallback_trigger
+  " iunmap <buffer> <Tab>
+  " if empty(maparg("<Tab>", "i"))
+  "   call s:L2U_ReinstateMapping(b:l2u_prev_map_tab)
+  " endif
+  " iunmap <buffer> <Plug>L2UTab
+  " exe 'iunmap <buffer> ' . s:l2u_fallback_trigger
   let b:l2u_tab_set = 0
 endfunction
 
@@ -676,9 +676,9 @@ function! s:L2U_SetAutoSub(wait_insert_enter)
   " autocmd InsertCharPre. The <Enter> key does not seem to be catched in
   " this way though, so we use a mapping for that case.
 
-  let b:l2u_prev_map_cr = s:L2U_SetFallbackMapping('<CR>', s:l2u_fallback_trigger_cr)
-  imap <buffer> <CR> <Plug>L2UAutoSub
-  exec 'inoremap <buffer><expr> <Plug>L2UAutoSub LaTeXtoUnicode#AutoSub("\n", "' . s:l2u_fallback_trigger_cr . '")'
+  " let b:l2u_prev_map_cr = s:L2U_SetFallbackMapping('<CR>', s:l2u_fallback_trigger_cr)
+  " imap <buffer> <CR> <Plug>L2UAutoSub
+  " exec 'inoremap <buffer><expr> <Plug>L2UAutoSub LaTeXtoUnicode#AutoSub("\n", "' . s:l2u_fallback_trigger_cr . '")'
 
   augroup L2UAutoSub
     autocmd! * <buffer>
@@ -694,12 +694,12 @@ function! s:L2U_UnsetAutoSub()
     return
   endif
 
-  iunmap <buffer> <CR>
-  if empty(maparg("<CR>", "i"))
-    call s:L2U_ReinstateMapping(b:l2u_prev_map_cr)
-  endif
-  iunmap <buffer> <Plug>L2UAutoSub
-  exe 'iunmap <buffer> ' . s:l2u_fallback_trigger_cr
+  " iunmap <buffer> <CR>
+  " if empty(maparg("<CR>", "i"))
+  "   call s:L2U_ReinstateMapping(b:l2u_prev_map_cr)
+  " endif
+  " iunmap <buffer> <Plug>L2UAutoSub
+  " exe 'iunmap <buffer> ' . s:l2u_fallback_trigger_cr
   augroup L2UAutoSub
     autocmd! * <buffer>
   augroup END
